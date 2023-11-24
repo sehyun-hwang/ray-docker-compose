@@ -7,39 +7,33 @@ services:
       - "${REDISPORT}:${REDISPORT}"
       - "${DASHBOARDPORT}:${DASHBOARDPORT}"
       - "${HEADNODEPORT}:${HEADNODEPORT}"
+      - 8000:8000
     env_file:
       - .env
-    command: bash -c "ray start --head --dashboard-port=${DASHBOARDPORT} --port=${REDISPORT} --dashboard-host=0.0.0.0 --redis-password=${REDISPASSWORD} --block"
+    command:
+      - python
+      - /mnt/ray_test.py
     shm_size: 2g
     deploy:
       resources:
         limits:
-          cpus: '1'
-          memory: '2g'
-    networks:
-      - ray_net
+          cpus: "1"
+          memory: "2g"
+    volumes:
+      - ./ray_test.py:/mnt/ray_test.py
 
   ray-worker:
     image: ${RAY_IMAGE}
-    depends_on: 
+    depends_on:
       - ray-head
     env_file:
       - .env
-    command: bash -c "ray start --address=ray-head:${REDISPORT} --redis-password=${REDISPASSWORD} --num-cpus=${NUM_CPU_WORKER} --block" 
+    command: bash -c "ray start --address=ray-head:${REDISPORT} --block"
     shm_size: 2g
     deploy:
       mode: replicated
-      replicas: ${NUM_WORKERS} 
+      replicas: 1
       resources:
         limits:
           cpus: ${NUM_CPU_WORKER}
-          memory: '2g'
-    networks:
-      - ray_net
-  
-networks:
-  ray_net:
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.63.0.0/16
+          memory: "2g"
