@@ -22,7 +22,7 @@ services:
       VIRTUAL_HOST: "localhost"
       VIRTUAL_PATH: /
       VIRTUAL_DEST: /
-      VIRTUAL_PORT: "8000"
+      VIRTUAL_PORT: "8001"
 
     command:
       - python
@@ -46,7 +46,7 @@ services:
     shm_size: 2g
     deploy:
       mode: replicated
-      replicas: 1
+      replicas: 2
       resources:
         limits:
           cpus: ${NUM_CPU_WORKER}
