@@ -1,9 +1,13 @@
 import socket
 import time
 from collections import Counter
+import asyncio
 from subprocess import check_call
 
 import ray
+from ray import serve
+from ray.serve.config import HTTPOptions
+
 import uvicorn
 from fastapi import FastAPI, Request
 from ray import serve
@@ -30,11 +34,16 @@ def f():
 @ray.remote
 class SayHello:
     def __init__(self):
+        time.sleep(1)
         print(socket.gethostbyname(socket.gethostname()), "Initialized SayHello")
         self.data = None
 
     async def hello(self, name: str) -> str:
-        time.sleep(1)
+        actor_id = ray.get_runtime_context().get_actor_id()
+        task_id = ray.get_runtime_context().get_task_id()
+        print(f"Hello {name=:50} from '{actor_id=}' | '{task_id=}'")
+        await asyncio.sleep(1)
+
         return f"Hello {name}!"
 
 
@@ -48,32 +57,37 @@ async def root():
         print(f"    {num_tasks} tasks on {ip_address}")
     return {"message": "Hello World"}
 
-@app.get("/hello")
-async def say_hello(name: str, request: Request):
-    print(request.__dict__)
-    print(request)
-    print(f"name = {name}")
-    print(type(say_hello))
-    print(dir(say_hello))
-    object_id = say_hello.hello.remote(name)
-    print(f"{object_id=}")
-    message = ray.get(object_id)
-    return message
 
 @serve.deployment
 class Downstream:
-    def say_hi(self, message: str):
-        return f"Hello {message}!"
+    def __init__(self):
+        time.sleep(1)
+        print(socket.gethostbyname(socket.gethostname()), "Initialized Downstream")
+        self.data = None
+
+    async def hello(self, name: str) -> str:
+        actor_id = ray.get_runtime_context().get_actor_id()
+        task_id = ray.get_runtime_context().get_task_id()
+        print(f"Hello {name=:50} from '{actor_id=}' | '{task_id=}'")
+        await asyncio.sleep(1)
+
+        return f"Hello {name}!"
+
 
 @serve.deployment
+@serve.ingress(app)
 class Ingress:
     _handle: Downstream
     def __init__(self, handle: DeploymentHandle):
         self._downstream_handle = handle
 
-    async def __call__(self, name: str) -> str:
-        response = self._downstream_handle.say_hi.remote(name)
-        return await response
+    @app.get("/hello2")
+    async def say_hello2(self, name: str, request: Request):
+        print(request.__dict__)
+        print(request)
+        print(f"name = {name}")
+        response = await self._downstream_handle.hello.remote(name)
+        return response
 
 @app.get("/stateful")
 async def root():
@@ -86,12 +100,38 @@ async def root():
     return "please"
 
 
+@app.get("/hello")
+async def say_hello(name: str, request: Request):
+    print(request.__dict__)
+    print(request)
+    print(f"name = {name}")
+    say_hello = SayHello.options(lifetime="detached").remote()
+    print(type(say_hello))
+    print(dir(say_hello))
+    # object_id = say_hello.hello.remote(name)
+    # print(f"{object_id=}")
+    # message = ray.get(object_id)
+    message = await say_hello.hello.remote(name)
+    return message
+
+
+
+downstream_app = Downstream.options(
+    num_replicas=14,
+    ray_actor_options={"num_cpus": 1, "memory": 600 * (1 << 20)}
+).bind()
+ray_app = Ingress.bind(downstream_app)
+
 if __name__ == "__main__":
-    check_call(["ray", "start", "--head", "--num-cpus", "0", "--dashboard-host", "0.0.0.0"])
+    check_call(["ray", "start", "--head", "--dashboard-host", "0.0.0.0"])
     print("main")
-    ray.init(address="auto")
-    ray_app = Ingress.bind(Downstream.bind())
-    handle: DeploymentHandle = serve.run(ray_app)
+    ray.init(address="auto", namespace="count_car")
+    
+    # http_options = HTTPOptions(host="0.0.0.0", port=8001, location="HeadOnly")
+    # serve.start(detached=True, http_options=http_options)
+
+    # ray_app = Ingress.bind(Downstream.bind())
+    # handle: DeploymentHandle = serve.run(ray_app)
     # say_hello = SayHello.remote()
     print(
         f"""This cluster consists of
@@ -99,4 +139,12 @@ if __name__ == "__main__":
         {ray.cluster_resources()} CPU resources in total
     """,
     )
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host="0.0.0.0", port=8008)
+
+    """
+Woker 노드를 붙일 머신들에서 모두 조인한 후
+Head 컨테이너에서 아래 명령어로 deployment 수행.
+
+serve start --http-host "0.0.0.0" --http-port 8001 --proxy-location "HeadOnly"
+serve run ray_test:ray_app 
+    """

@@ -31,26 +31,29 @@ services:
     deploy:
       resources:
         limits:
-          cpus: "1"
-          memory: "2g"
+          cpus: "8"
+          memory: "8g"
     volumes:
       - ./ray_test.py:/mnt/ray_test.py
+    network_mode: "host"
 
   ray-worker:
+    profiles: [ worker ]
     image: ${RAY_IMAGE}
-    depends_on:
-      - ray-head
     env_file:
       - .env
-    command: bash -c "ray start --address=ray-head:${REDISPORT} --block"
-    shm_size: 2g
+    command: bash -c "ray start --address=192.168.240.72:${REDISPORT} --block"
+    shm_size: 3g
     deploy:
       mode: replicated
-      replicas: 2
+      replicas: ${NUM_WORKER_REPLICA:-1}
       resources:
         limits:
           cpus: ${NUM_CPU_WORKER}
-          memory: "2g"
+          memory: "4g"
+    volumes:
+      - ./ray_test.py:/mnt/ray_test.py
+    network_mode: "host"
 
   whoami:
     image: traefik/whoami
