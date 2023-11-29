@@ -5,12 +5,14 @@ from subprocess import check_call
 
 import ray
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from ray import serve
 from ray.serve.handle import DeploymentHandle
+from ray.util.actor_pool import ActorPool
 
 app = FastAPI()
-
+pool = ActorPool([])
+DESIRED_ACTOR_COUNT = 2
 
 @ray.remote
 def f():
@@ -51,48 +53,47 @@ async def root():
 @app.get("/hello")
 async def say_hello(name: str, request: Request):
     print(request.__dict__)
-    print(request)
-    print(f"name = {name}")
-    print(type(say_hello))
-    print(dir(say_hello))
-    object_id = say_hello.hello.remote(name)
-    print(f"{object_id=}")
-    message = ray.get(object_id)
+    print(f"{name=}")
+
+    def handle_pool_submit(actor, arg):
+        print("handle_pool_submit", actor, arg)
+        return actor.hello.remote(arg)
+    pool.submit(handle_pool_submit, name)
+    print("submit", name)
+    message = pool.get_next()
+    print(name, message)
     return message
 
-@serve.deployment
-class Downstream:
-    def say_hi(self, message: str):
-        return f"Hello {message}!"
+def update_actor_pool() -> int:
+    actor_count = len(pool._idle_actors) + len(pool._future_to_actor.values())
+    # TODO: Instead of DESIRED_ACTOR_COUNT, use https://docs.ray.io/en/latest/ray-core/api/doc/ray.available_resources.html
+    if actor_count > DESIRED_ACTOR_COUNT:
+        print("Popping actor")
+        pool.pop()
+        actor_count -= 1
+    elif actor_count < DESIRED_ACTOR_COUNT:
+        print("Pushing actor")
+        remote = SayHello.remote()
+        print(ray.get(remote.hello.remote("healthcheck")))
+        pool.push(remote)
+        actor_count += 1
 
-@serve.deployment
-class Ingress:
-    _handle: Downstream
-    def __init__(self, handle: DeploymentHandle):
-        self._downstream_handle = handle
+    print(actor_count)
+    return actor_count
 
-    async def __call__(self, name: str) -> str:
-        response = self._downstream_handle.say_hi.remote(name)
-        return await response
-
-@app.get("/stateful")
-async def root():
-    # https://docs.ray.io/en/latest/serve/api/doc/ray.serve.handle.DeploymentHandle.html
-    ray_response = handle.remote("world")
-    ray_response2 = ray.get(ray_response)
-    response = ray.get(ray_response2)
-    print(response)
-    assert response == "Hello world!"
-    return "please"
-
+@app.get("/healthcheck")
+def run_healthcheck():
+    actors_count = update_actor_pool()
+    if not actors_count:
+        raise HTTPException(status_code=503, detail="No actor available")
+    return {
+        "actors_count": actors_count
+    }
 
 if __name__ == "__main__":
     check_call(["ray", "start", "--head", "--num-cpus", "0", "--dashboard-host", "0.0.0.0"])
     print("main")
     ray.init(address="auto")
-    ray_app = Ingress.bind(Downstream.bind())
-    handle: DeploymentHandle = serve.run(ray_app)
-    # say_hello = SayHello.remote()
     print(
         f"""This cluster consists of
         {len(ray.nodes())} nodes in total
