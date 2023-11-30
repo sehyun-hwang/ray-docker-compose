@@ -147,4 +147,7 @@ Head 컨테이너에서 아래 명령어로 deployment 수행.
 
 serve start --http-host "0.0.0.0" --http-port 8001 --proxy-location "HeadOnly"
 serve run ray_test:ray_app 
+
+docker compose exec ray-head serve start --http-host "0.0.0.0" --http-port 8001 --proxy-location "HeadOnly"
+docker compose exec -w /mnt ray-head serve run ray_test:ray_app
     """

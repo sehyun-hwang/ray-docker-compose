@@ -42,7 +42,7 @@ services:
     image: ${RAY_IMAGE}
     env_file:
       - .env
-    command: bash -c "ray start --address=192.168.240.72:${REDISPORT} --block"
+    command: bash -c "ray start --address=${RAY_HEAD_HOST}:${REDISPORT} --block"
     shm_size: 3g
     deploy:
       mode: replicated
