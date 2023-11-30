@@ -2,6 +2,8 @@ import socket
 import time
 from collections import Counter
 from subprocess import check_call
+import asyncio
+import random
 
 import ray
 import uvicorn
@@ -11,8 +13,8 @@ from ray.serve.handle import DeploymentHandle
 from ray.util.actor_pool import ActorPool
 
 app = FastAPI()
-pool = ActorPool([])
-DESIRED_ACTOR_COUNT = 2
+ACTOR_NAMES = [f"actor-{i}" for i in range(5)]
+
 
 @ray.remote
 def f():
@@ -29,14 +31,15 @@ def f():
     return socket.gethostbyname(socket.gethostname())
 
 
-@ray.remote
+@ray.remote(lifetime="detached")
 class SayHello:
     def __init__(self):
+        time.sleep(1)
         print(socket.gethostbyname(socket.gethostname()), "Initialized SayHello")
         self.data = None
 
     async def hello(self, name: str) -> str:
-        time.sleep(1)
+        await asyncio.sleep(1)
         return f"Hello {name}!"
 
 
@@ -54,41 +57,9 @@ async def root():
 async def say_hello(name: str, request: Request):
     print(request.__dict__)
     print(f"{name=}")
-
-    def handle_pool_submit(actor, arg):
-        print("handle_pool_submit", actor, arg)
-        return actor.hello.remote(arg)
-    pool.submit(handle_pool_submit, name)
-    print("submit", name)
-    message = pool.get_next()
-    print(name, message)
+    say_hello = SayHello.options(name=random.choice(ACTOR_NAMES), get_if_exists=True).remote()
+    message = await say_hello.hello.remote(name)
     return message
-
-def update_actor_pool() -> int:
-    actor_count = len(pool._idle_actors) + len(pool._future_to_actor.values())
-    # TODO: Instead of DESIRED_ACTOR_COUNT, use https://docs.ray.io/en/latest/ray-core/api/doc/ray.available_resources.html
-    if actor_count > DESIRED_ACTOR_COUNT:
-        print("Popping actor")
-        pool.pop()
-        actor_count -= 1
-    elif actor_count < DESIRED_ACTOR_COUNT:
-        print("Pushing actor")
-        remote = SayHello.remote()
-        print(ray.get(remote.hello.remote("healthcheck")))
-        pool.push(remote)
-        actor_count += 1
-
-    print(actor_count)
-    return actor_count
-
-@app.get("/healthcheck")
-def run_healthcheck():
-    actors_count = update_actor_pool()
-    if not actors_count:
-        raise HTTPException(status_code=503, detail="No actor available")
-    return {
-        "actors_count": actors_count
-    }
 
 if __name__ == "__main__":
     check_call(["ray", "start", "--head", "--num-cpus", "0", "--dashboard-host", "0.0.0.0"])

@@ -35,18 +35,6 @@ services:
           memory: "2g"
     volumes:
       - ./ray_test.py:/mnt/ray_test.py
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "wget",
-          "-O-",
-          "--tries=1",
-          "-q",
-          "http://localhost:8001/healthcheck",
-        ]
-      interval: 1s
-      start_interval: 1s
 
   ray-worker:
     image: ${RAY_IMAGE}
