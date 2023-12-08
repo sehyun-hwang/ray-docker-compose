@@ -1,6 +1,9 @@
 version: "3"
 
 services:
+  # TODO:
+  # ray-head가 만드는 docker container "ray_container" [--net=host]
+  # 를 프록시할 수 있도록 할 것.
   nginx-proxy:
     image: nginxproxy/nginx-proxy
     ports:
@@ -12,10 +15,6 @@ services:
 
   ray-head:
     image: ${RAY_IMAGE}
-    ports:
-      - "${REDISPORT}:${REDISPORT}"
-      - "${DASHBOARDPORT}:${DASHBOARDPORT}"
-      - "${HEADNODEPORT}:${HEADNODEPORT}"
     env_file:
       - .env
     environment:
@@ -24,33 +23,21 @@ services:
       VIRTUAL_DEST: /
       VIRTUAL_PORT: "8001"
 
-    command:
-      - python
-      - /mnt/ray_test.py
-    shm_size: 2g
+    command: sleep infinity
+
+    shm_size: 4GB
     deploy:
       resources:
         limits:
-          cpus: "1"
-          memory: "2g"
+          cpus: "2"
+          memory: "4g"
+    network_mode: "host"
+    working_dir: "/mnt"
     volumes:
       - ./ray_test.py:/mnt/ray_test.py
-
-  ray-worker:
-    image: ${RAY_IMAGE}
-    depends_on:
-      - ray-head
-    env_file:
-      - .env
-    command: bash -c "ray start --address=ray-head:${REDISPORT} --block"
-    shm_size: 2g
-    deploy:
-      mode: replicated
-      replicas: 2
-      resources:
-        limits:
-          cpus: ${NUM_CPU_WORKER}
-          memory: "2g"
+      - ./cluster.yml:/mnt/cluster.yml
+      - ./actor-cluster.yml:/mnt/actor-cluster.yml
+      - ~/.ssh:/home/ray/.ssh:ro
 
   whoami:
     image: traefik/whoami

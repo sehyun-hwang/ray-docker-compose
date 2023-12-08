@@ -34,16 +34,19 @@ The following ports are exposed by default:
 
 # Connect to Cluster
 The following is a minimum working example to connect to the cluster head node **
-```
+
+```python
 import ray
 ray.init(address='ray://<head_node_ip_address>:10001')
 ```
+
 ** This may require prequisites on your local PC matching those of the cluster.
 
 For example, when running the docker-compose from above, this is running on ```localhost:10001``` by default.
 
 A slightly more advanced example, executing some work on the workers and listing the IPs:
-```
+
+```python
 from collections import Counter
 import socket
 import time
@@ -72,3 +75,20 @@ for ip_address, num_tasks in Counter(ip_addresses).items():
 ```
 
 or simply run the included script ```python ray_test.py```.
+
+# Using ray up cluster
+
+```bash
+docker compose up -d
+
+docker compose exec -it ray-head bash
+
+cd /mnt
+
+# RAY UP
+ray up cluster.yml -y -v --no-config-cache --disable-usage-stats
+ray up actor-cluster.yml -y -v --no-config-cache --disable-usage-stats
+
+# RAY DOWN
+ray down cluster.yml -y -v
+```
